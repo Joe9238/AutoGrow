@@ -19,10 +19,15 @@ HardwareSerial sensorUART(1);
 // Read 1 register starting at 0x0000 from slave ID 1
 byte requestFrame[] = {
   0x01,   // Slave ID
-  0x03,   // Function code: Read Holding Registers
-  0x00, 0x00,   // Start register high, low
-  0x00, 0x01,   // Number of registers high, low
-  0x84, 0x0A    // CRC (for these bytes)
+  0x03,   // Function code 3: Read Holding Registers
+  0x00, 0x00,   // Start register high, low - which memory slot you want to start reading from 
+  0x00, 0x02,   // Number of registers high, low
+  0xC4, 0x0B    // CRC (Low byte, High Byte) https://crccalc.com/?crc=01%2003%2000%2000%2000%2002&method=CRC-16/MODBUS&datatype=hex&outtype=hex
+};
+
+struct sensorReadings {
+    double moisture;
+    double temperature;
 };
 
 // -------------------- OLED Power Control --------------------
@@ -77,47 +82,52 @@ void sendRequest() {
 }
 
 // -------------------- Read Response --------------------
-int readMoisture() {
-  byte response[7];
+sensorReadings readSensors() {
+  int expectedBytes = 9;
+  byte response[expectedBytes];
   int index = 0;
   unsigned long start = millis();
 
   while (millis() - start < 500) {
     while (sensorUART.available()) {
       response[index++] = sensorUART.read();
-      if (index >= 7) break;
+      if (index >= expectedBytes) break;
     }
-    if (index >= 7) break;
+    if (index >= expectedBytes) break;
   }
 
-  if (index < 7) {
+  if (index < expectedBytes) {
     Serial.println("No response from sensor");
-    return -1;
+    return {-1, -1};
   }
 
-  // Basic sanity check
   if (response[0] != 0x01 || response[1] != 0x03) {
     Serial.println("Invalid response header");
-    return -1;
+    return {-1, -1};
   }
 
-  int moisture = (response[3] << 8) | response[4];
-  return moisture;
+  double moisture = double((response[3] << 8) | response[4]) / 10.0;
+  double temperature = double((response[5] << 8) | response[6]) / 10.0;
+  return {moisture, temperature};
 }
 
 // -------------------- Display --------------------
-void displayValue(int moisture) {
+void displayValue(double moisture, double temperature) {
   display.clear();
 
   display.setFont(ArialMT_Plain_10);
   display.drawString(0, 0, "Soil Sensor");
 
   if (moisture >= 0) {
-    display.drawString(0, 14, "Moisture:");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(0, 28, String(moisture));
+    display.drawString(0, 14, "Moisture: " + String(moisture, 1) + "%");
   } else {
-    display.drawString(0, 14, "ERROR");
+    display.drawString(0, 14, "MOISTURE ERROR");
+  }
+
+  if (temperature >= 0) {
+    display.drawString(0, 28, "Temperature: " + String(temperature, 1) + "°C");
+  } else {
+    display.drawString(0, 28, "TEMPERATURE ERROR");
   }
 
   display.display();
@@ -128,14 +138,9 @@ void loop() {
   sendRequest();
   delay(200);
 
-  int moisture = readMoisture();
+  sensorReadings readings = readSensors();
 
-  if (moisture >= 0) {
-    Serial.print("Moisture: ");
-    Serial.println(moisture);
-  }
-
-  displayValue(moisture);
+  displayValue(readings.moisture, readings.temperature);
 
   delay(3000);
 }
