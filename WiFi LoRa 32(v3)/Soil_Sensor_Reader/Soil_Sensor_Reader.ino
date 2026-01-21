@@ -1,5 +1,7 @@
 #include <Wire.h>
 #include "HT_SSD1306Wire.h"
+#include <WiFi.h>
+#include <esp_now.h>
 
 // -------------------- OLED Setup --------------------
 #ifdef WIRELESS_STICK_V3
@@ -26,11 +28,15 @@ byte requestFrame[] = {
 };
 
 struct sensorReadings {
-    double moisture;
-    double temperature;
+  float moisture;
+  float temperature;
 };
 
-// -------------------- OLED Power Control --------------------
+// -------------------- ESP-NOW --------------------
+uint8_t peerMac[] = { 0xE4, 0xB3, 0x23, 0xF7, 0xBF, 0x28 }; // ESP32-S3-Zero MAC
+String lastTime = "Waiting...";
+
+// -------------------- OLED Power --------------------
 void VextON() {
   pinMode(Vext, OUTPUT);
   digitalWrite(Vext, LOW);   // LOW = ON
@@ -41,18 +47,32 @@ void VextOFF() {
   digitalWrite(Vext, HIGH);  // HIGH = OFF
 }
 
+// -------------------- ESP-NOW Receive --------------------
+void onReceive(const esp_now_recv_info *info, const uint8_t *incomingData, int len) {
+  char msg[64];
+  memcpy(msg, incomingData, len);
+  msg[len] = '\0';
+
+  Serial.print("Message: ");
+  Serial.println(msg);
+
+  if (strncmp(msg, "TIME:", 5) == 0)
+  {
+    lastTime = String(msg + 5);
+  }
+}
+
 // -------------------- Setup --------------------
 void setup() {
   Serial.begin(115200);
   delay(1000);
 
-  Serial.println("Soil Sensor OLED Test Starting...");
+  Serial.println("Soil Sensor Starting...");
 
   // Turn OLED power on
   VextON();
   delay(100);
 
-  // Init display
   display.init();
   display.clear();
   display.setContrast(255);
@@ -64,24 +84,49 @@ void setup() {
 
   // Init UART
   sensorUART.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
-
   pinMode(DE_RE_PIN, OUTPUT);
-  digitalWrite(DE_RE_PIN, LOW);   // Receive mode
+  digitalWrite(DE_RE_PIN, LOW);
+
+  // ESP-NOW Wi-Fi
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ESP-NOW init failed");
+    display.drawString(0, 28, "ESP-NOW FAIL");
+    display.display();
+    return;
+  }
+
+  esp_now_register_recv_cb(onReceive);
+
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, peerMac, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    display.drawString(0, 28, "Peer FAIL");
+    display.display();
+    return;
+  }
+
+  Serial.println("ESP-NOW ready");
 }
 
 // -------------------- Send Modbus Request --------------------
 void sendRequest() {
-  digitalWrite(DE_RE_PIN, HIGH);   // Transmit mode
+  digitalWrite(DE_RE_PIN, HIGH);
   delay(2);
 
   sensorUART.write(requestFrame, sizeof(requestFrame));
   sensorUART.flush();
 
   delay(2);
-  digitalWrite(DE_RE_PIN, LOW);    // Back to receive mode
+  digitalWrite(DE_RE_PIN, LOW);
 }
 
-// -------------------- Read Response --------------------
+// -------------------- Read Modbus --------------------
 sensorReadings readSensors() {
   int expectedBytes = 9;
   byte response[expectedBytes];
@@ -98,49 +143,59 @@ sensorReadings readSensors() {
 
   if (index < expectedBytes) {
     Serial.println("No response from sensor");
-    return {-1, -1};
+    return { -1, -1 };
   }
 
   if (response[0] != 0x01 || response[1] != 0x03) {
     Serial.println("Invalid response header");
-    return {-1, -1};
+    return { -1, -1 };
   }
 
-  double moisture = double((response[3] << 8) | response[4]) / 10.0;
-  double temperature = double((response[5] << 8) | response[6]) / 10.0;
-  return {moisture, temperature};
+  float moisture = float((response[3] << 8) | response[4]) / 10.0;
+  float temperature = float((response[5] << 8) | response[6]) / 10.0;
+
+  return { moisture, temperature };
 }
 
 // -------------------- Display --------------------
-void displayValue(double moisture, double temperature) {
+void displayValue(float moisture, float temperature, String timeStr) {
   display.clear();
-
   display.setFont(ArialMT_Plain_10);
+
   display.drawString(0, 0, "Soil Sensor");
 
   if (moisture >= 0) {
-    display.drawString(0, 14, "Moisture: " + String(moisture, 1) + "%");
+    display.drawString(0, 12, "Moist: " + String(moisture, 1) + "%");
   } else {
-    display.drawString(0, 14, "MOISTURE ERROR");
+    display.drawString(0, 12, "MOISTURE ERROR");
   }
 
   if (temperature >= 0) {
-    display.drawString(0, 28, "Temperature: " + String(temperature, 1) + "°C");
+    display.drawString(0, 24, "Temp: " + String(temperature, 1) + " C");
   } else {
-    display.drawString(0, 28, "TEMPERATURE ERROR");
+    display.drawString(0, 24, "TEMP ERROR");
   }
+
+  display.drawString(0, 36, "Time:");
+  display.drawString(0, 48, timeStr);
 
   display.display();
 }
 
 // -------------------- Main Loop --------------------
 void loop() {
+  // Read soil sensor
   sendRequest();
   delay(200);
 
   sensorReadings readings = readSensors();
 
-  displayValue(readings.moisture, readings.temperature);
+  // Ask ESP32-S3 for elapsed time
+  const char *msg = "TIME?";
+  esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
+
+  // Update display
+  displayValue(readings.moisture, readings.temperature, lastTime);
 
   delay(3000);
 }
