@@ -49,4 +49,9 @@ class User extends Authenticatable //implements MustVerifyEmail
             'two_factor_confirmed_at' => 'datetime',
         ];
     }
+
+    public function devices()
+    {
+        return $this->hasMany(Device::class);
+    }
 }

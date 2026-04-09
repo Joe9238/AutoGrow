@@ -17,13 +17,13 @@ import { Link } from '@inertiajs/vue3';
 import { BookOpen, Folder, LayoutGrid, MapPin } from 'lucide-vue-next';
 import AppLogo from './AppLogo.vue';
 
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Device 1',
-        href: dashboard(),
-        icon: MapPin,
-    },
-];
+const props = defineProps<{ devices?: Array<{ name: string; device_uid: string }> }>();
+
+const mainNavItems: NavItem[] = (props.devices || []).map(device => ({
+    title: device.name,
+    href: dashboard({ query: { device: device.device_uid } }), // Pass device_uid as query param
+    device_uid: device.device_uid,
+}));
 
 const footerNavItems: NavItem[] = [
     /*{

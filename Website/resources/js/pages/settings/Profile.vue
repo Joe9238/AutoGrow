@@ -48,29 +48,9 @@ const user = page.props.auth.user;
                     class="space-y-6"
                     v-slot="{ errors, processing, recentlySuccessful }"
                 >
-                    <!-- Personal Details -->
                     <fieldset class="border p-4 rounded">
-                        <legend class="font-semibold mb-2">Personal Details</legend>
+                        <legend class="font-semibold mb-2">Profile Details</legend>
                         <div class="grid grid-cols-1 gap-4">
-                            <div class="grid gap-2">
-                                <Label for="title">Title</Label>
-                                <select
-                                    id="title"
-                                    name="title"
-                                    :default-value="user.title"
-                                    required
-                                    class="outline-none border-input flex h-9 w-full text-[14px] rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-                                >
-                                    <option value="" disabled hidden>Select title</option>
-                                    <option value="Mr">Mr</option>
-                                    <option value="Mrs">Mrs</option>
-                                    <option value="Miss">Miss</option>
-                                    <option value="Ms">Ms</option>
-                                    <option value="Mx">Mx</option>
-                                    <option value="Other">Other</option>
-                                </select>
-                                <InputError class="mt-2" :message="errors.title" />
-                            </div>
                             <div class="grid gap-2">
                                 <Label for="name">Name</Label>
                                 <Input
@@ -84,74 +64,6 @@ const user = page.props.auth.user;
                                 />
                                 <InputError class="mt-2" :message="errors.name" />
                             </div>
-                        </div>
-                    </fieldset>
-
-                    <!-- Address Details -->
-                    <fieldset class="border p-4 rounded">
-                        <legend class="font-semibold mb-2">Address Details</legend>
-                        <div class="grid grid-cols-1 gap-4">
-                            <div class="grid gap-2">
-                                <Label for="house_name_number">House name/number</Label>
-                                <Input
-                                    id="house_name_number"
-                                    name="house_name_number"
-                                    :default-value="user.house_name_number"
-                                    required
-                                    placeholder="e.g. 12 or Rose Cottage"
-                                />
-                                <InputError class="mt-2" :message="errors.house_name_number" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="street_name">Street name</Label>
-                                <Input
-                                    id="street_name"
-                                    name="street_name"
-                                    :default-value="user.street_name"
-                                    required
-                                    placeholder="e.g. High Street"
-                                />
-                                <InputError class="mt-2" :message="errors.street_name" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="locality_name">Locality name</Label>
-                                <Input
-                                    id="locality_name"
-                                    name="locality_name"
-                                    :default-value="user.locality_name"
-                                    placeholder="Locality name"
-                                />
-                                <InputError class="mt-2" :message="errors.locality_name" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="city">City</Label>
-                                <Input
-                                    id="city"
-                                    name="city"
-                                    :default-value="user.city"
-                                    required
-                                    placeholder="e.g. London"
-                                />
-                                <InputError class="mt-2" :message="errors.city" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="post_code">Post code</Label>
-                                <Input
-                                    id="post_code"
-                                    name="post_code"
-                                    :default-value="user.post_code"
-                                    required
-                                    placeholder="e.g. SW1A 1AA"
-                                />
-                                <InputError class="mt-2" :message="errors.post_code" />
-                            </div>
-                        </div>
-                    </fieldset>
-
-                    <!-- Contact Details -->
-                    <fieldset class="border p-4 rounded">
-                        <legend class="font-semibold mb-2">Contact Details</legend>
-                        <div class="grid grid-cols-1 gap-4">
                             <div class="grid gap-2">
                                 <Label for="email">Email address</Label>
                                 <Input
@@ -165,26 +77,6 @@ const user = page.props.auth.user;
                                     placeholder="Email address"
                                 />
                                 <InputError class="mt-2" :message="errors.email" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="phone">Phone</Label>
-                                <Input
-                                    id="phone"
-                                    name="phone"
-                                    :default-value="user.phone"
-                                    placeholder="Phone number"
-                                />
-                                <InputError class="mt-2" :message="errors.phone" />
-                            </div>
-                            <div class="grid gap-2">
-                                <Label for="mobile">Mobile</Label>
-                                <Input
-                                    id="mobile"
-                                    name="mobile"
-                                    :default-value="user.mobile"
-                                    placeholder="Mobile number"
-                                />
-                                <InputError class="mt-2" :message="errors.mobile" />
                             </div>
                         </div>
                     </fieldset>
