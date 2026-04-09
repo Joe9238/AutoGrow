@@ -6,12 +6,13 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use App\Models\PairingCode;
+//use PhpMqtt\Client\Facades\MQTT;
 
 class PairingCodeController extends Controller
 {
     public function createPairingCode(Request $request)
     {
-        $this->deletePairingCode($request); // delete any existing codes for this user
+        $this->deletePairingCodes($request); // delete any existing codes for this user
         $code = strtoupper(Str::random(8));
 
         PairingCode::create([
@@ -20,10 +21,12 @@ class PairingCodeController extends Controller
             'expires_at' => now()->addMinutes(10)
         ]);
 
+        //MQTT::publish('some/topic', 'Hello World!'); // test publish to check if MQTT connection works
+
         return $code;
     }
 
-    public function deletePairingCode(Request $request)
+    public function deletePairingCodes(Request $request)
     {
         $userId = Auth::id();
         PairingCode::where('user_id', $userId)->delete();
