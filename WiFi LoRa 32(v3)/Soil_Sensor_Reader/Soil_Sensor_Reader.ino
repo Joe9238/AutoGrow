@@ -2,6 +2,16 @@
 #include "HT_SSD1306Wire.h"
 #include <WiFi.h>
 #include <esp_now.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <DNSServer.h>
+
+DNSServer dnsServer;
+const byte DNS_PORT = 53;
+
+Preferences prefs;
+String currentSSID = "";
+WebServer server(80);
 
 // -------------------- OLED Setup --------------------
 #ifdef WIRELESS_STICK_V3
@@ -14,6 +24,8 @@ static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RS
 const int TX_PIN = 6;
 const int RX_PIN = 7;
 const int DE_RE_PIN = 42;
+const int WIFI_LED_PIN = 5;
+const int WIFI_BUTTON_PIN = 4;
 
 HardwareSerial sensorUART(1);
 
@@ -35,6 +47,16 @@ struct sensorReadings {
 // -------------------- ESP-NOW --------------------
 uint8_t peerMac[] = { 0xE4, 0xB3, 0x23, 0xF7, 0xBF, 0x28 }; // ESP32-S3-Zero MAC
 String lastTime = "Waiting...";
+
+// -------------------- Sensor Reading ----------------
+unsigned long lastSensorRead = 0;
+const unsigned long SENSOR_INTERVAL = 5000; // 5 seconds
+
+// ----------------------- WiFi Reset -----------------
+bool apMode = false;
+unsigned long wifiResetStart = 0;
+const unsigned long LONG_PRESS_TIME = 10000; // 10 second hold
+
 
 // -------------------- OLED Power --------------------
 void VextON() {
@@ -59,6 +81,170 @@ void onReceive(const esp_now_recv_info *info, const uint8_t *incomingData, int l
   if (strncmp(msg, "TIME:", 5) == 0)
   {
     lastTime = String(msg + 5);
+  }
+}
+
+// -------------------- WIFI Reset --------------------
+
+String generatePassword(int length = 10) {
+  const char charset[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789";
+
+  String pass = "";
+  for (int i = 0; i < length; i++) {
+    uint32_t r = esp_random();                 // hardware RNG
+    pass += charset[r % (sizeof(charset) - 1)];
+  }
+  return pass;
+}
+
+void startHotspot() {
+  prefs.begin("wifi", false);
+  prefs.clear();
+  prefs.end();
+  
+  display.clear();
+  display.setFont(ArialMT_Plain_10);
+
+  display.drawString(0, 0, "AP MODE");
+
+  WiFi.disconnect(true, true); // clear creds
+  delay(200);
+
+  String hotspotPassword = generatePassword(10);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP("AutoGrow-Setup", hotspotPassword);
+
+  IPAddress IP = WiFi.softAPIP();
+
+  // Redirect all domains to ESP
+  dnsServer.start(DNS_PORT, "*", IP);
+  // Android
+  server.on("/generate_204", handleRoot);
+
+  // Windows
+  server.on("/fwlink", handleRoot);
+
+  // Apple (iOS/macOS)
+  server.on("/hotspot-detect.html", handleRoot);
+  server.on("/library/test/success.html", handleRoot);
+
+  // Catch-all
+  server.onNotFound(handleRoot);
+
+  display.drawString(0, 15, "Connect to Wi-Fi hotspot");
+  display.drawString(0, 27, "AutoGrow-Setup");
+  display.drawString(0, 39, "Password: " + hotspotPassword);
+  display.display();
+  apMode = true;
+
+  server.on("/", handleRoot);
+  server.on("/save", HTTP_POST, handleSave);
+  server.begin();
+}
+
+void handleSave() {
+  String ssid = server.arg("ssid");
+  String pass = server.arg("pass");
+
+  Serial.println("SSID: " + ssid);
+  Serial.println("PASS: " + pass);
+
+  // Keep AP alive + try STA connection
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.begin(ssid.c_str(), pass.c_str());
+
+  int attempts = 0;
+  const int maxAttempts = 20; // ~10 seconds
+
+  while (WiFi.status() != WL_CONNECTED && attempts < maxAttempts) {
+    delay(500);
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    // Save only if successful
+    prefs.begin("wifi", false);
+    prefs.putString("ssid", ssid);
+    prefs.putString("pass", pass);
+    prefs.end();
+
+    String html = R"rawliteral(
+      <html>
+      <body>
+        <h2 style="color:green;">Connected successfully!</h2>
+        <p>You can now close this page.</p>
+      </body>
+      </html>
+    )rawliteral";
+
+    server.send(200, "text/html", html);
+
+    delay(2000);
+    ESP.restart();
+  } else {
+    WiFi.disconnect(false); // disconnect STA only, keep AP
+
+    String html = R"rawliteral(
+      <html>
+      <body>
+        <h2 style="color:red;">Connection Failed</h2>
+        <p>Check SSID or password and try again.</p>
+        <a href="/">Go Back</a>
+      </body>
+      </html>
+    )rawliteral";
+
+    server.send(200, "text/html", html);
+  }
+}
+
+// --------------------- AP website ------------
+void handleRoot() {
+  String html = R"rawliteral(
+  <html>
+  <body>
+    <h2>AutoGrow Setup</h2>
+
+    <form action="/save" method="POST" onsubmit="showConnecting()">
+      2.4GHz WiFi SSID:<br>
+      <input name="ssid"><br>
+
+      WiFi Password:<br>
+      <input name="pass" type="password"><br><br>
+
+      <input type="submit" value="Save">
+    </form>
+
+    <p id="status" style="color:blue;"></p>
+
+    <script>
+      function showConnecting() {
+        document.getElementById("status").innerText = "Connecting...";
+      }
+    </script>
+
+  </body>
+  </html>
+  )rawliteral";
+
+  server.send(200, "text/html", html);
+}
+
+// --------------------- WiFi Status ------------
+
+void drawWiFiStatus() {
+  if (apMode) {
+    display.drawString(60, 0, "AP Mode");  // Access Point mode (redundant here but added just in case)
+    return;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    display.drawString(60, 0, "WiFi: " + WiFi.SSID());  // Connected
+  } else {
+    display.drawString(90, 0, "No WiFi");     // Not connected
   }
 }
 
@@ -111,6 +297,20 @@ void setup() {
     return;
   }
 
+  prefs.begin("wifi", true);
+  currentSSID = prefs.getString("ssid", "");
+  String savedPASS = prefs.getString("pass", "");
+  prefs.end();
+
+  if (currentSSID != "") {
+    WiFi.begin(currentSSID.c_str(), savedPASS.c_str());
+  }
+
+  // setup wifi pins
+  pinMode(WIFI_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(WIFI_LED_PIN, OUTPUT);
+  digitalWrite(WIFI_LED_PIN, LOW);
+
   Serial.println("ESP-NOW ready");
 }
 
@@ -162,7 +362,8 @@ void displayValue(float moisture, float temperature, String timeStr) {
   display.clear();
   display.setFont(ArialMT_Plain_10);
 
-  display.drawString(0, 0, "Soil Sensor");
+  display.drawString(0, 0, "AutoGrow");
+  drawWiFiStatus(); 
 
   if (moisture >= 0) {
     display.drawString(0, 12, "Moist: " + String(moisture, 1) + "%");
@@ -184,18 +385,56 @@ void displayValue(float moisture, float temperature, String timeStr) {
 
 // -------------------- Main Loop --------------------
 void loop() {
-  // Read soil sensor
-  sendRequest();
-  delay(200);
+  if (apMode) {
+    dnsServer.processNextRequest(); 
+    server.handleClient();
+    return;
+  }
 
-  sensorReadings readings = readSensors();
+  unsigned long now = millis();
+  int wifiButtonPinState = digitalRead(WIFI_BUTTON_PIN);
 
-  // Ask ESP32-S3 for elapsed time
-  const char *msg = "TIME?";
-  esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
 
-  // Update display
-  displayValue(readings.moisture, readings.temperature, lastTime);
+  // -------- Soil Sensor Every 5 Seconds --------
+  if (now - lastSensorRead >= SENSOR_INTERVAL && wifiButtonPinState == HIGH) {
+    lastSensorRead = now;
 
-  delay(3000);
+    sendRequest();
+    delay(50);
+
+    sensorReadings readings = readSensors();
+
+    const char *msg = "TIME?";
+    esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
+
+    displayValue(readings.moisture, readings.temperature, lastTime);
+  }
+
+  // -------- Button Handling (Long Press) --------
+  if (wifiButtonPinState == LOW) {
+    digitalWrite(WIFI_LED_PIN, HIGH);
+     
+    display.clear();
+    display.setFont(ArialMT_Plain_10);
+
+    display.drawString(0, 0, "WIFI WILL RESET IN:");
+    if (wifiResetStart == 0) {
+      wifiResetStart = now;
+    }
+
+    int secondsLeft = 10 - ((now - wifiResetStart) / 1000);
+    display.drawString(0, 30, String(secondsLeft));
+
+    display.display();
+
+    // Long press detected
+    if (!apMode && (now - wifiResetStart > LONG_PRESS_TIME)) {
+      startHotspot();
+    }
+
+  } else {
+    digitalWrite(WIFI_LED_PIN, LOW);
+    wifiResetStart = 0;
+  }
 }
+
