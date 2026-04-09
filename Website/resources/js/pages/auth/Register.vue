@@ -1,0 +1,105 @@
+<script setup lang="ts">
+import InputError from '@/components/InputError.vue';
+import TextLink from '@/components/TextLink.vue';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Spinner } from '@/components/ui/spinner';
+import AuthBase from '@/layouts/AuthLayout.vue';
+import { login } from '@/routes';
+import { store } from '@/routes/register';
+import { Form, Head } from '@inertiajs/vue3';
+import { ref } from 'vue';
+
+
+</script>
+
+<template>
+    <AuthBase
+        title="Create an account"
+        description="Enter your details below to create your account"
+    >
+        <Head title="Register" />
+
+        <Form
+            v-bind="store.form()"
+            :reset-on-success="['password', 'password_confirmation']"
+            v-slot="{ errors, processing }"
+            class="max-w-md mx-auto"
+        >
+            <div class="flex flex-col gap-6">
+                <fieldset class="border p-4 rounded">
+                    <legend class="font-semibold mb-2">Register</legend>
+                    <div class="grid grid-cols-1 gap-4">
+                        <div class="grid gap-2">
+                            <Label for="name">Full Name</Label>
+                            <Input
+                                id="name"
+                                type="text"
+                                required
+                                autofocus
+                                autocomplete="name"
+                                name="name"
+                                placeholder="Full name"
+                            />
+                            <InputError :message="errors.name" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="email">Email address</Label>
+                            <Input
+                                id="email"
+                                type="email"
+                                required
+                                autocomplete="email"
+                                name="email"
+                                placeholder="email@example.com"
+                            />
+                            <InputError :message="errors.email" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="password">Password</Label>
+                            <Input
+                                id="password"
+                                type="password"
+                                required
+                                autocomplete="new-password"
+                                name="password"
+                                placeholder="Password"
+                            />
+                            <InputError :message="errors.password" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="password_confirmation">Confirm password</Label>
+                            <Input
+                                id="password_confirmation"
+                                type="password"
+                                required
+                                autocomplete="new-password"
+                                name="password_confirmation"
+                                placeholder="Confirm password"
+                            />
+                            <InputError :message="errors.password_confirmation" />
+                        </div>
+                    </div>
+                </fieldset>
+                <Button
+                    type="submit"
+                    class="mt-2 w-full"
+                    :disabled="processing"
+                    data-test="register-user-button"
+                >
+                    <Spinner v-if="processing" />
+                    Create account
+                </Button>
+                <div class="text-center text-sm text-muted-foreground">
+                    Already have an account?
+                    <TextLink
+                        :href="login()"
+                        class="underline underline-offset-4"
+                        >Log in</TextLink
+                    >
+                </div>
+            </div>
+        </Form>
+    </AuthBase>
+</template>
