@@ -35,13 +35,6 @@ return new class extends Migration
             $table->longText('payload');
             $table->integer('last_activity')->index();
         });
-
-        // add default user
-        \App\Models\User::factory()->create([
-            'name' => 'Generic User',
-            'email' => 'email@user.com',
-            'password' => '$2y$12$rlZVSSA7OG0k7pckEvC6a.dZpEqp6KsDfSJ40qjRr.oeZFQhqAQom' // password
-        ]);
     }
 
     /**
