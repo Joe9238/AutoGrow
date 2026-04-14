@@ -36,6 +36,10 @@ tmux send-keys -t $SESSION "./vendor/bin/sail npm run dev" C-m
 tmux new-window -t $SESSION -n "artisan"
 tmux send-keys -t $SESSION "./vendor/bin/sail artisan migrate" C-m
 
+# Window 6 - mqtt listener
+tmux new-window -t $SESSION -n "mqtt"
+tmux send-keys -t $SESSION "./vendor/bin/sail artisan mqtt:listen" C-m
+
 # Optional seed
 # tmux send-keys -t $SESSION "./vendor/bin/sail artisan db:seed" C-m
 

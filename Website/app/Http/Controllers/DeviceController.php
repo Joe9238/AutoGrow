@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use app\Models\Device;
+use App\Models\Device;
 use App\Models\PairingCode;
 use Illuminate\Support\Str;
 
@@ -47,7 +47,7 @@ class DeviceController extends Controller
                 'user_id'        => $pair->user_id,
                 'name'           => 'AutoGrow Device',
                 'mqtt_username'  => 'dev_' . Str::random(8),
-                'mqtt_password'  => Str::random(16),
+                'mqtt_password'  => Str::random(16)
             ]);
         } else {
             // If device exists but not assigned, assign it

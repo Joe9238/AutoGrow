@@ -19,6 +19,7 @@ class Device extends Model
         'name',
         'device_uid',
         'mqtt_username',
+        'mqtt_password',
         'user_id',
     ];
 
@@ -27,9 +28,7 @@ class Device extends Model
      *
      * @var list<string>
      */
-    protected $hidden = [
-        'mqtt_password',
-    ];
+    protected $hidden = [];
 
     protected $casts = [
         'created_at' => 'datetime',
