@@ -5,6 +5,8 @@
 #include <WebServer.h>
 #include <Preferences.h>
 #include <DNSServer.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
@@ -104,6 +106,9 @@ void startHotspot() {
   prefs.begin("wifi", false);
   prefs.clear();
   prefs.end();
+  prefs.begin("mqtt", false);
+  prefs.clear();
+  prefs.end();
   
   display.clear();
   display.setFont(ArialMT_Plain_10);
@@ -113,7 +118,7 @@ void startHotspot() {
   WiFi.disconnect(true, true); // clear creds
   delay(200);
 
-  String hotspotPassword = generatePassword(10);
+  String hotspotPassword = generatePassword(5);
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP("AutoGrow-Setup", hotspotPassword);
 
@@ -148,6 +153,7 @@ void startHotspot() {
 void handleSave() {
   String ssid = server.arg("ssid");
   String pass = server.arg("pass");
+  String code = server.arg("code");
 
   Serial.println("SSID: " + ssid);
   Serial.println("PASS: " + pass);
@@ -169,6 +175,10 @@ void handleSave() {
     prefs.begin("wifi", false);
     prefs.putString("ssid", ssid);
     prefs.putString("pass", pass);
+    prefs.end();
+
+    prefs.begin("mqtt", false);
+    prefs.putString("code", code);
     prefs.end();
 
     String html = R"rawliteral(
@@ -213,7 +223,10 @@ void handleRoot() {
       <input name="ssid"><br>
 
       WiFi Password:<br>
-      <input name="pass" type="password"><br><br>
+      <input name="pass" type="password"><br>
+
+      Pairing Code:<br>
+      <input name="code"><br><br>
 
       <input type="submit" value="Save">
     </form>
@@ -246,6 +259,65 @@ void drawWiFiStatus() {
   } else {
     display.drawString(90, 0, "No WiFi");     // Not connected
   }
+}
+
+// --------------------- Register with website ------------
+
+void registerDevice() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi not connected");
+    return;
+  }
+
+  HTTPClient http;
+
+  String url = "http://192.168.68.53/api/device/register";
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+
+  // Get MAC as UID
+  String uid = WiFi.macAddress();
+  uid.replace(":", "");
+
+  prefs.begin("mqtt", false);
+  String pairingCode = prefs.getString("code", "");
+  prefs.end();
+
+  String payload = "{";
+  payload += "\"uid\":\"" + uid + "\",";
+  payload += "\"code\":\"" + pairingCode + "\"";
+  payload += "}";
+  Serial.println(payload);
+  int httpResponseCode = http.POST(payload);
+
+  if (httpResponseCode > 0) {
+    String response = http.getString();
+    Serial.println(response);
+
+    StaticJsonDocument<512> doc;
+    deserializeJson(doc, response);
+
+    if (doc["success"]) {
+      String user = doc["mqtt"]["username"];
+      String pass = doc["mqtt"]["password"];
+
+      // Save to prefs
+      prefs.begin("mqtt", false);
+      prefs.putString("user", user);
+      prefs.putString("pass", pass);
+      prefs.end();
+
+      Serial.println("MQTT creds saved!");
+
+    } else {
+      Serial.println("Registration failed");
+    }
+
+  } else {
+    Serial.println("HTTP error");
+  }
+
+  http.end();
 }
 
 // -------------------- Setup --------------------
@@ -304,6 +376,16 @@ void setup() {
 
   if (currentSSID != "") {
     WiFi.begin(currentSSID.c_str(), savedPASS.c_str());
+    delay(5000);
+    prefs.begin("mqtt", true);
+    String mqttUser = prefs.getString("user", "");
+    String mqttPass = prefs.getString("pass", "");
+    prefs.end();
+
+    if (mqttUser == "" || mqttPass == "") {
+      Serial.println("No MQTT creds → registering...");
+      registerDevice();
+    }
   }
 
   // setup wifi pins
@@ -417,7 +499,7 @@ void loop() {
     display.clear();
     display.setFont(ArialMT_Plain_10);
 
-    display.drawString(0, 0, "WIFI WILL RESET IN:");
+    display.drawString(0, 0, "DEVICE WILL RESET IN:");
     if (wifiResetStart == 0) {
       wifiResetStart = now;
     }
