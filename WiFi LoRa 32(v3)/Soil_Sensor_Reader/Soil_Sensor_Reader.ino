@@ -26,6 +26,10 @@ String mqttUser = "";
 String mqttPass = "";
 String mqttTopic = "";
 
+bool rainToday = false;
+float yellowThreshold = 50;
+float redThreshold = 30;
+
 // -------------------- OLED Setup --------------------
 #ifdef WIRELESS_STICK_V3
 static SSD1306Wire display(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_64_32, RST_OLED);
@@ -343,6 +347,21 @@ void loadMQTT() {
   prefs.end();
 }
 
+void loadConfig() {
+  prefs.begin("config", true);
+
+  rainToday = prefs.getBool("rain", false);
+  yellowThreshold = prefs.getFloat("yellow", 50);
+  redThreshold = prefs.getFloat("red", 30);
+
+  prefs.end();
+
+  Serial.println("Loaded config from prefs:");
+  Serial.println("Rain: " + String(rainToday));
+  Serial.println("Yellow: " + String(yellowThreshold));
+  Serial.println("Red: " + String(redThreshold));
+}
+
 // -------------------- Use credentials to connect to HiveMQ --------------------
 
 bool connectMQTT() {
@@ -366,6 +385,10 @@ bool connectMQTT() {
 
     if (mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPass.c_str())){
       Serial.println("MQTT connected");
+      String configTopic = mqttTopic + "/config";
+      mqttClient.subscribe(configTopic.c_str());
+
+      Serial.println("Subscribed to: " + configTopic);
       return true;
     }
 
@@ -403,6 +426,32 @@ void sendMQTT(sensorReadings readings) {
   } else {
     Serial.println("MQTT publish failed");
   }
+}
+
+// -------------------- React to incoming MQTT data --------------------
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, message)) {
+    Serial.println("JSON parse failed");
+    return;
+  }
+
+  rainToday = doc["rain_today"];
+  yellowThreshold = doc["yellow_threshold"];
+  redThreshold = doc["red_threshold"];
+
+  Serial.println("Config updated + saving");
+
+  prefs.begin("config", false);
+  prefs.putBool("rain", rainToday);
+  prefs.putFloat("yellow", yellowThreshold);
+  prefs.putFloat("red", redThreshold);
+  prefs.end();
 }
 
 // -------------------- Setup --------------------
@@ -459,6 +508,8 @@ void setup() {
   String savedPASS = prefs.getString("pass", "");
   prefs.end();
 
+  loadConfig();
+
   if (currentSSID != "") {
     WiFi.begin(currentSSID.c_str(), savedPASS.c_str());
     delay(5000); // give the wifi 5 seconds to properly connect
@@ -470,6 +521,7 @@ void setup() {
     } else {
       wifiClient.setInsecure(); 
       connectMQTT();
+      mqttClient.setCallback(mqttCallback);
     }
   }
 
@@ -550,6 +602,31 @@ void displayValue(float moisture, float temperature, String timeStr) {
   display.display();
 }
 
+void handleWatering(sensorReadings readings) {
+  if (readings.moisture < 0) return;
+
+  bool shouldWater = false;
+
+  if (readings.moisture <= redThreshold) {
+    // always water
+    shouldWater = true;
+  } 
+  else if (readings.moisture <= yellowThreshold) {
+    // only water if no rain
+    if (!rainToday) {
+      shouldWater = true;
+    }
+  }
+
+  if (shouldWater) {
+    Serial.println("WATERING TRIGGERED");
+    esp_now_send(peerMac, (uint8_t*)"WATER_ON", strlen("WATER_ON"));
+  } else {
+    Serial.println("No watering needed");
+    esp_now_send(peerMac, (uint8_t*)"WATER_OFF", strlen("WATER_OFF"));
+  }
+}
+
 // -------------------- Main Loop --------------------
 void loop() {
   if (apMode) {
@@ -561,25 +638,7 @@ void loop() {
   unsigned long now = millis();
   int wifiButtonPinState = digitalRead(WIFI_BUTTON_PIN);
 
-
-  // -------- Soil Sensor Every X Seconds --------
-  if (now - lastSensorRead >= SENSOR_INTERVAL && wifiButtonPinState == HIGH) {
-    lastSensorRead = now;
-
-    sendRequest();
-    delay(50);
-
-    sensorReadings readings = readSensors();
-
-    const char *msg = "TIME?";
-    esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
-
-    displayValue(readings.moisture, readings.temperature, lastTime);
-
-    sendMQTT(readings);
-  }
-
-  // -------- Button Handling (Long Press) --------
+    // -------- Button Handling (Long Press) --------
   if (wifiButtonPinState == LOW) {
     digitalWrite(WIFI_LED_PIN, HIGH);
      
@@ -604,6 +663,26 @@ void loop() {
   } else {
     digitalWrite(WIFI_LED_PIN, LOW);
     wifiResetStart = 0;
+  }
+
+  mqttClient.loop();
+
+  // -------- Soil Sensor Every X Seconds --------
+  if (now - lastSensorRead >= SENSOR_INTERVAL && wifiButtonPinState == HIGH) {
+    lastSensorRead = now;
+
+    sendRequest();
+    delay(50);
+
+    sensorReadings readings = readSensors();
+
+    const char *msg = "TIME?";
+    esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
+
+    displayValue(readings.moisture, readings.temperature, lastTime);
+    
+    handleWatering(readings);
+    sendMQTT(readings);
   }
 }
 
