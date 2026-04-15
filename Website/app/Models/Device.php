@@ -26,6 +26,8 @@ class Device extends Model
         'postcode',
         'latitude',
         'longitude',
+        'yellow_threshold',
+        'red_threshold',
     ];
 
     /**

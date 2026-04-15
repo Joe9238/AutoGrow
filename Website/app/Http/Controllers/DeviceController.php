@@ -48,7 +48,9 @@ class DeviceController extends Controller
                 'user_id'        => $pair->user_id,
                 'name'           => 'AutoGrow Device',
                 'mqtt_username'  => env('DEVICE_MQTT_USERNAME', ''),
-                'mqtt_password'  => env('DEVICE_MQTT_PASSWORD', '')
+                'mqtt_password'  => env('DEVICE_MQTT_PASSWORD', ''),
+                'yellow_threshold' => env('DEFAULT_YELLOW_THRESHOLD', 50),
+                'red_threshold' => env('DEFAULT_RED_THRESHOLD', 30),
             ]);
         } else {
             // If device exists but not assigned, assign it
@@ -96,6 +98,33 @@ class DeviceController extends Controller
 
         return redirect()->back()->with('success', 'Postcode updated!');
     }
+
+    /**
+     * Update device yellow/red thresholds
+     */
+    public function updateThresholds(Request $request)
+    {
+        $request->validate([
+            'device_uid' => 'required|exists:devices,device_uid',
+            'yellow_threshold' => 'required|integer|min:0|max:100',
+            'red_threshold' => 'required|integer|min:0|max:100',
+        ]);
+
+        if ($request->red_threshold > $request->yellow_threshold) {
+            return back()->withErrors(['red_threshold' => 'Red threshold cannot be above yellow threshold.']);
+        }
+
+        $device = Device::where('device_uid', $request->device_uid)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+
+        $device->yellow_threshold = $request->yellow_threshold;
+        $device->red_threshold = $request->red_threshold;
+        $device->save();
+
+        return back()->with('success', 'Thresholds updated!');
+    }
+    
 
     /**
      * Get device info 

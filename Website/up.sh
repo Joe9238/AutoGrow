@@ -40,6 +40,14 @@ tmux send-keys -t $SESSION "./vendor/bin/sail artisan migrate" C-m
 tmux new-window -t $SESSION -n "mqtt"
 tmux send-keys -t $SESSION "./vendor/bin/sail artisan mqtt:listen" C-m
 
+# window 7 - scheduler
+tmux new-window -t $SESSION -n "scheduler"
+tmux send-keys -t $SESSION "./vendor/bin/sail artisan schedule:work" C-m
+
+# Window 8 - queue worker
+tmux new-window -t $SESSION -n "queue"
+tmux send-keys -t $SESSION "./vendor/bin/sail artisan queue:work" C-m
+
 # Optional seed
 # tmux send-keys -t $SESSION "./vendor/bin/sail artisan db:seed" C-m
 

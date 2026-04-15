@@ -38,6 +38,8 @@ Route::get('dashboard', function (Request $request) {
                 'postcode' => $device->postcode,
                 'latitude' => $device->latitude,
                 'longitude' => $device->longitude,
+                'yellow_threshold' => $device->yellow_threshold,
+                'red_threshold' => $device->red_threshold,
             ];
         }),
         'pairingCode' => null,
@@ -61,6 +63,8 @@ Route::get('/pairing-code', function (PairingCodeController $controller, Request
     ]);
 })->middleware('auth');
 
+
 Route::post('/devices/update-postcode', [DeviceController::class, 'updatePostcode'])->middleware('auth');
+Route::post('/devices/update-thresholds', [DeviceController::class, 'updateThresholds'])->middleware('auth');
 
 require __DIR__.'/settings.php';

@@ -7,6 +7,62 @@ import { ref, computed } from 'vue';
 import SensorReadingsChart from '@/Components/SensorReadingsChart.vue';
 import { Link } from '@inertiajs/vue3';
 
+// Threshold slider state
+const editingThresholds = ref(false);
+const yellowThresholdInput = ref(0);
+const redThresholdInput = ref(0);
+const thresholdError = ref('');
+const thresholdSuccess = ref('');
+const updatingThresholds = ref(false);
+const thresholdForm = useForm({
+    device_uid: '',
+    yellow_threshold: 0,
+    red_threshold: 0,
+});
+
+function startEditThresholds() {
+    yellowThresholdInput.value = selectedDevice.value?.yellow_threshold ?? 50;
+    redThresholdInput.value = selectedDevice.value?.red_threshold ?? 30;
+    thresholdError.value = '';
+    thresholdSuccess.value = '';
+    editingThresholds.value = true;
+}
+
+function cancelEditThresholds() {
+    editingThresholds.value = false;
+    thresholdError.value = '';
+    thresholdSuccess.value = '';
+}
+
+async function saveThresholds() {
+    thresholdError.value = '';
+    thresholdSuccess.value = '';
+    updatingThresholds.value = true;
+    // Validation: red <= yellow
+    if (redThresholdInput.value > yellowThresholdInput.value) {
+        thresholdError.value = 'Red threshold cannot be above yellow threshold.';
+        updatingThresholds.value = false;
+        return;
+    }
+    thresholdForm.device_uid = selectedDevice.value.device_uid;
+    thresholdForm.yellow_threshold = yellowThresholdInput.value;
+    thresholdForm.red_threshold = redThresholdInput.value;
+    thresholdForm.post('/devices/update-thresholds', {
+        preserveScroll: true,
+        onSuccess: () => {
+            thresholdSuccess.value = 'Thresholds updated!';
+            editingThresholds.value = false;
+            window.location.reload();
+        },
+        onError: (errors) => {
+            thresholdError.value = errors.yellow_threshold || errors.red_threshold || 'Failed to update thresholds.';
+        },
+        onFinish: () => {
+            updatingThresholds.value = false;
+        },
+    });
+}
+
 const page = usePage();
 const devices = (page.props.devices as Array<{ name: string; device_uid: string; created_at: string; postcode?: string; latitude?: number; longitude?: number }>) || [];
 
@@ -117,8 +173,51 @@ const breadcrumbs: BreadcrumbItem[] = [
                         <span>Lat: {{ selectedDevice.latitude }}, Lng: {{ selectedDevice.longitude }}</span>
                     </div>
                 </div>
+                <!-- Threshold Sliders Component -->
+                <div class="flex flex-col w-96 ml-6 rounded-lg border-2 border-dashed border-gray-300 p-4 bg-gray-50">
+                    <h2 class="text-lg font-semibold mb-2">Soil Moisture Thresholds</h2>
+                    <div v-if="!editingThresholds">
+                        <div class="mb-2">
+                            <span class="font-semibold">Yellow Threshold: </span>
+                            <span>{{ selectedDevice.yellow_threshold }}%</span>
+                            <div v-if="selectedDevice.yellow_threshold === 0" class="mt-1 text-yellow-700 text-xs font-semibold">
+                                Warning: At 0%, the device will not dispense water automatically.
+                            </div>
+                            <div v-else-if="selectedDevice.yellow_threshold === 100" class="mt-1 text-yellow-700 text-xs font-semibold">
+                                Warning: At 100%, the device may continuously dispense water.
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <span class="font-semibold">Red Threshold: </span>
+                            <span>{{ selectedDevice.red_threshold }}%</span>
+                        </div>
+                        <button class="px-3 py-1 text-xs border rounded bg-blue-500 text-white" @click="startEditThresholds">Edit Thresholds</button>
+                    </div>
+                    <div v-else>
+                        <div class="mb-4">
+                            <label class="block font-semibold mb-1">Yellow Threshold: <span class="text-gray-600">{{ yellowThresholdInput }}%</span></label>
+                            <input type="range" min="0" max="100" v-model.number="yellowThresholdInput" class="w-full" />
+                            <div v-if="yellowThresholdInput === 0" class="mt-1 text-yellow-700 text-xs font-semibold">
+                                Warning: At 0%, the device will not dispense water automatically.
+                            </div>
+                            <div v-else-if="yellowThresholdInput === 100" class="mt-1 text-yellow-700 text-xs font-semibold">
+                                Warning: At 100%, the device may continuously dispense water.
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <label class="block font-semibold mb-1">Red Threshold: <span class="text-gray-600">{{ redThresholdInput }}%</span></label>
+                            <input type="range" min="0" max="100" v-model.number="redThresholdInput" class="w-full" />
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 text-xs border rounded bg-blue-500 text-white" :disabled="updatingThresholds || thresholdForm.processing" @click="saveThresholds">Save</button>
+                            <button class="px-3 py-1 text-xs border rounded" :disabled="updatingThresholds || thresholdForm.processing" @click="cancelEditThresholds">Cancel</button>
+                        </div>
+                        <span v-if="thresholdError" class="mt-2 text-red-500 text-xs">{{ thresholdError }}</span>
+                        <span v-if="thresholdSuccess" class="mt-2 text-green-600 text-xs">{{ thresholdSuccess }}</span>
+                    </div>
+                </div>
             </div>
-            <SensorReadingsChart v-if="selectedDevice" :readings="deviceReadings" />
+            <SensorReadingsChart v-if="selectedDevice" :readings="deviceReadings" :yellow-threshold="selectedDevice.yellow_threshold" :red-threshold="selectedDevice.red_threshold" />
             <div v-else class="flex flex-col items-center justify-center h-96">
                 <div class="rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
                     <h2 class="text-xl font-semibold mb-2">No Device Selected</h2>
