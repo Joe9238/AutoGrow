@@ -49,7 +49,14 @@ class MqttListen extends Command
 
             $device = Device::where('device_uid', $uid)->first();
             if (!$device) return;
-
+            
+            $device->readings()->create([
+                'moisture' => $data['moisture'] ?? null,
+                'temperature' => $data['temperature'] ?? null,
+                'recorded_at' => now(),
+            ]);
+            echo "Saved reading for device $uid\n";
+            
         }, 0);
 
         $mqtt->loop(true);

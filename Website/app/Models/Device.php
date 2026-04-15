@@ -4,6 +4,8 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Models\SensorReadings;
 
 class Device extends Model
 {
@@ -21,6 +23,9 @@ class Device extends Model
         'mqtt_username',
         'mqtt_password',
         'user_id',
+        'postcode',
+        'latitude',
+        'longitude',
     ];
 
     /**
@@ -37,5 +42,10 @@ class Device extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function readings()
+    {
+        return $this->hasMany(SensorReadings::class);
     }
 }

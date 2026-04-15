@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Device;
 use App\Models\PairingCode;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class DeviceController extends Controller
 {
@@ -46,12 +47,12 @@ class DeviceController extends Controller
                 'device_uid'     => $uid,
                 'user_id'        => $pair->user_id,
                 'name'           => 'AutoGrow Device',
-                'mqtt_username'  => 'dev_' . Str::random(8),
-                'mqtt_password'  => Str::random(16)
+                'mqtt_username'  => env('DEVICE_MQTT_USERNAME', ''),
+                'mqtt_password'  => env('DEVICE_MQTT_PASSWORD', '')
             ]);
         } else {
             // If device exists but not assigned, assign it
-            if (!$device->user_id) {
+            if (!$device->user_id || $device->user_id !== $pair->user_id) {
                 $device->user_id = $pair->user_id;
                 $device->save();
             }
@@ -73,6 +74,27 @@ class DeviceController extends Controller
                 'topic_base' => "device/{$device->device_uid}"
             ]
         ]);
+    }
+
+    public function updatePostcode(Request $request)
+    {
+        $request->validate([
+            'device_uid' => 'required|exists:devices,device_uid',
+            'postcode' => 'required|string',
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+        ]);
+
+        $device = Device::where('device_uid', $request->device_uid)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+
+        $device->postcode = $request->postcode;
+        $device->latitude = $request->latitude;
+        $device->longitude = $request->longitude;
+        $device->save();
+
+        return redirect()->back()->with('success', 'Postcode updated!');
     }
 
     /**

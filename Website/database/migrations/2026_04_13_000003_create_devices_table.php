@@ -18,6 +18,9 @@ return new class extends Migration
             $table->unsignedBigInteger('user_id');
             $table->string('mqtt_username', 64)->nullable();
             $table->string('mqtt_password', 64)->nullable();
+            $table->string('postcode', 10)->nullable();
+            $table->decimal('latitude', 10, 7)->nullable();
+            $table->decimal('longitude', 10, 7)->nullable();
             $table->timestamp('created_at')->useCurrent()->nullable();
             $table->timestamp('updated_at')->useCurrent()->nullable();
         });

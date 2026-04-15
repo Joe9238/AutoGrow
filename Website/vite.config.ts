@@ -10,7 +10,7 @@ export default defineConfig({
         port: 5173,
         strictPort: true,
         hmr: {
-            host: '192.168.68.53',
+            host: process.env.VITE_HOST || 'localhost',
         },
         watch: {
             usePolling: true
