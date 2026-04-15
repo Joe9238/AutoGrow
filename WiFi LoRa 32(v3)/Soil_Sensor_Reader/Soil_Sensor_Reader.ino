@@ -7,6 +7,8 @@
 #include <DNSServer.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
+#include <PubSubClient.h>
 
 DNSServer dnsServer;
 const byte DNS_PORT = 53;
@@ -14,6 +16,15 @@ const byte DNS_PORT = 53;
 Preferences prefs;
 String currentSSID = "";
 WebServer server(80);
+
+WiFiClientSecure wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+String mqttHost = "";
+int mqttPort = 8883;
+String mqttUser = "";
+String mqttPass = "";
+String mqttTopic = "";
 
 // -------------------- OLED Setup --------------------
 #ifdef WIRELESS_STICK_V3
@@ -271,7 +282,7 @@ void registerDevice() {
 
   HTTPClient http;
 
-  String url = "http://192.168.68.53/api/device/register";
+  String url = "http://192.168.68.52/api/device/register";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
@@ -298,26 +309,100 @@ void registerDevice() {
     deserializeJson(doc, response);
 
     if (doc["success"]) {
-      String user = doc["mqtt"]["username"];
-      String pass = doc["mqtt"]["password"];
-
       // Save to prefs
       prefs.begin("mqtt", false);
-      prefs.putString("user", user);
-      prefs.putString("pass", pass);
+      prefs.putString("host", String(doc["mqtt"]["host"]));
+      prefs.putInt("port", doc["mqtt"]["port"]);
+      prefs.putString("user", String(doc["mqtt"]["username"]));
+      prefs.putString("pass", String(doc["mqtt"]["password"]));
+      prefs.putString("topic", String(doc["mqtt"]["topic_base"]));
       prefs.end();
-
-      Serial.println("MQTT creds saved!");
-
+      loadMQTT();
+      Serial.println("MQTT credentials saved!");
+      ESP.restart();
     } else {
       Serial.println("Registration failed");
     }
 
   } else {
     Serial.println("HTTP error");
+    Serial.println(httpResponseCode);
   }
 
   http.end();
+}
+
+// -------------------- Setup to load MQTT data into globals --------------------
+void loadMQTT() {
+  prefs.begin("mqtt", true);
+  mqttHost = prefs.getString("host", "");
+  mqttPort = prefs.getInt("port", 8883);
+  mqttUser = prefs.getString("user", "");
+  mqttPass = prefs.getString("pass", "");
+  mqttTopic = prefs.getString("topic", "");
+  prefs.end();
+}
+
+// -------------------- Use credentials to connect to HiveMQ --------------------
+
+bool connectMQTT() {
+  WiFi.mode(WIFI_STA);
+  dnsServer.stop();
+
+  Serial.println("MQTT Host: " + mqttHost);
+  Serial.println("MQTT Port: " + String(mqttPort));
+  Serial.println("MQTT User: " + mqttUser);
+
+  mqttClient.setServer(mqttHost.c_str(), mqttPort);
+
+  const int maxAttempts = 5;
+  int attempts = 0;
+
+  while (!mqttClient.connected() && attempts < maxAttempts && digitalRead(WIFI_BUTTON_PIN) == HIGH) {
+    Serial.print("MQTT attempt ");
+    Serial.println(attempts + 1);
+
+    String clientId = "esp32-" + WiFi.macAddress();
+
+    if (mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPass.c_str())){
+      Serial.println("MQTT connected");
+      return true;
+    }
+
+    Serial.print("Failed, rc=");
+    Serial.println(mqttClient.state());
+
+    attempts++;
+    delay(1000);
+  }
+
+  Serial.println("MQTT connection failed");
+  return false;
+}
+
+void sendMQTT(sensorReadings readings) {
+  if (!mqttClient.connected()) {
+    if (!connectMQTT()) {
+      Serial.println("Skipping MQTT send (no connection)");
+      return; // FAIL EXIT
+    }
+  }
+
+  mqttClient.loop();
+
+  String payload = "{";
+  payload += "\"moisture\":" + String(readings.moisture, 1) + ",";
+  payload += "\"temperature\":" + String(readings.temperature, 1) + ",";
+  payload += "\"timestamp\":" + String(millis() / 1000);
+  payload += "}";
+
+  String topic = mqttTopic + "/data";
+
+  if (mqttClient.publish(topic.c_str(), payload.c_str())) {
+    Serial.println("MQTT Sent: " + payload);
+  } else {
+    Serial.println("MQTT publish failed");
+  }
 }
 
 // -------------------- Setup --------------------
@@ -376,15 +461,15 @@ void setup() {
 
   if (currentSSID != "") {
     WiFi.begin(currentSSID.c_str(), savedPASS.c_str());
-    delay(5000);
-    prefs.begin("mqtt", true);
-    String mqttUser = prefs.getString("user", "");
-    String mqttPass = prefs.getString("pass", "");
-    prefs.end();
-
+    delay(5000); // give the wifi 5 seconds to properly connect
+    
+    loadMQTT();
     if (mqttUser == "" || mqttPass == "") {
       Serial.println("No MQTT creds → registering...");
       registerDevice();
+    } else {
+      wifiClient.setInsecure(); 
+      connectMQTT();
     }
   }
 
@@ -477,7 +562,7 @@ void loop() {
   int wifiButtonPinState = digitalRead(WIFI_BUTTON_PIN);
 
 
-  // -------- Soil Sensor Every 5 Seconds --------
+  // -------- Soil Sensor Every X Seconds --------
   if (now - lastSensorRead >= SENSOR_INTERVAL && wifiButtonPinState == HIGH) {
     lastSensorRead = now;
 
@@ -490,6 +575,8 @@ void loop() {
     esp_now_send(peerMac, (uint8_t *)msg, strlen(msg));
 
     displayValue(readings.moisture, readings.temperature, lastTime);
+
+    sendMQTT(readings);
   }
 
   // -------- Button Handling (Long Press) --------
