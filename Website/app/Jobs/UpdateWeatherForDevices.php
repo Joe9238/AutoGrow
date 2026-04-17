@@ -38,7 +38,7 @@ class UpdateWeatherForDevices implements ShouldQueue
         }
     }
 
-    private function checkRain($lat, $lng)
+    public function checkRain($lat, $lng)
     {
         // check lat and long are valid
         if (!is_numeric($lat) || !is_numeric($lng) || $lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {

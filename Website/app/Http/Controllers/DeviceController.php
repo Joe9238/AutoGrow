@@ -7,6 +7,8 @@ use App\Models\Device;
 use App\Models\PairingCode;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
+use App\Jobs\UpdateWeatherForDevices;
+
 
 class DeviceController extends Controller
 {
@@ -60,8 +62,27 @@ class DeviceController extends Controller
             }
         }
 
+
         // Delete used pairing code
         app('App\Http\Controllers\PairingCodeController')->deletePairingCodes(request());
+
+        // Update weather for this device
+        dispatch(function () use ($device) {
+            // Inline single-device weather update logic
+            $job = new class($device) extends \App\Jobs\UpdateWeatherForDevices {
+                private $device;
+                public function __construct($device) { $this->device = $device; }
+                public function handle(): void {
+                    $rainToday = $this->checkRain($this->device->latitude, $this->device->longitude);
+                    \PhpMqtt\Client\Facades\MQTT::publish("device/{$this->device->device_uid}/config", json_encode([
+                        'rain_today' => $rainToday,
+                        'yellow_threshold' => $this->device->yellow_threshold,
+                        'red_threshold' => $this->device->red_threshold,
+                    ]));
+                }
+            };
+            $job->handle();
+        });
 
         // ----------------------------
         // Return MQTT config
@@ -96,6 +117,8 @@ class DeviceController extends Controller
         $device->longitude = $request->longitude;
         $device->save();
 
+        // Update weather for this device
+        $this->updateWeatherForDevice($device);
         return redirect()->back()->with('success', 'Postcode updated!');
     }
 
@@ -122,9 +145,62 @@ class DeviceController extends Controller
         $device->red_threshold = $request->red_threshold;
         $device->save();
 
+        // Update weather for this device
+        $this->updateWeatherForDevice($device);
         return back()->with('success', 'Thresholds updated!');
     }
     
+    /**
+     * Update weather for a single device (helper)
+     */
+    private function updateWeatherForDevice($device)
+    {
+        // Inline single-device weather update logic
+        $job = new class($device) extends \App\Jobs\UpdateWeatherForDevices {
+            private $device;
+            public function __construct($device) { $this->device = $device; }
+            public function handle(): void {
+                $rainToday = $this->checkRain($this->device->latitude, $this->device->longitude);
+                \PhpMqtt\Client\Facades\MQTT::publish("device/{$this->device->device_uid}/config", json_encode([
+                    'rain_today' => $rainToday,
+                    'yellow_threshold' => $this->device->yellow_threshold,
+                    'red_threshold' => $this->device->red_threshold,
+                ]));
+            }
+        };
+        $job->handle();
+    }
+    
+    /**
+     * Rename device by device_uid 
+     */
+    public function renameDevice(Request $request)
+    {
+        $request->validate([
+            'device_uid' => 'required|exists:devices,device_uid',
+            'name' => 'required|string|max:255',
+        ]);
+        $device = Device::where('device_uid', $request->device_uid)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+        $device->name = $request->name;
+        $device->save();
+        return redirect()->back()->with('success', 'Device renamed!');
+    }
+    /**
+     * Delete device by device_uid
+     */
+    public function deleteDevice(Request $request)
+    {
+        $request->validate([
+            'device_uid' => 'required|exists:devices,device_uid',
+        ]);
+        $device = Device::where('device_uid', $request->device_uid)
+            ->where('user_id', Auth::id())
+            ->firstOrFail();
+        $device->delete();
+        return redirect('/dashboard');
+    }
 
     /**
      * Get device info 

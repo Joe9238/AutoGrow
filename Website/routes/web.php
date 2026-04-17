@@ -7,6 +7,7 @@ use App\Http\Controllers\PairingCodeController;
 use Symfony\Component\HttpFoundation\Request;
 use App\Models\Device;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\NotificationController;
 
 Route::get('/', function () {
     if (Auth::check()) {
@@ -64,7 +65,14 @@ Route::get('/pairing-code', function (PairingCodeController $controller, Request
 })->middleware('auth');
 
 
+
 Route::post('/devices/update-postcode', [DeviceController::class, 'updatePostcode'])->middleware('auth');
 Route::post('/devices/update-thresholds', [DeviceController::class, 'updateThresholds'])->middleware('auth');
+Route::post('/devices/delete', [DeviceController::class, 'deleteDevice'])->middleware('auth');
+Route::post('/devices/rename', [DeviceController::class, 'renameDevice'])->middleware('auth');
+
+Route::get('/notifications/list', [NotificationController::class, 'list'])->middleware('auth');
+Route::post('/notifications/delete/{id}', [NotificationController::class, 'delete'])->middleware('auth');
+
 
 require __DIR__.'/settings.php';

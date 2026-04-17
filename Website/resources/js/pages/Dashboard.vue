@@ -6,6 +6,32 @@ import { Head, usePage, useForm } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import SensorReadingsChart from '@/Components/SensorReadingsChart.vue';
 import { Link } from '@inertiajs/vue3';
+import { onMounted } from 'vue';
+
+const notifications = ref<Array<{ id: number; title: string; body?: string; created_at: string }>>([]);
+const notificationCount = ref(0);
+const showNotifications = ref(false);
+
+// Rename device state
+const renamingDevice = ref(false);
+const renameInput = ref('');
+const renameError = ref('');
+const updatingRename = ref(false);
+const renameForm = useForm({
+    device_uid: '',
+    name: '',
+});
+
+const editingPostcode = ref(false);
+const postcodeInput = ref('');
+const postcodeError = ref('');
+const updatingPostcode = ref(false);
+const postcodeForm = useForm({
+    device_uid: '',
+    postcode: '',
+    latitude: '',
+    longitude: '',
+});
 
 // Threshold slider state
 const editingThresholds = ref(false);
@@ -20,9 +46,35 @@ const thresholdForm = useForm({
     red_threshold: 0,
 });
 
+
+const page = usePage();
+const devices = (page.props.devices as Array<{
+    name: string;
+    device_uid: string;
+    created_at: string;
+    postcode?: string;
+    latitude?: number;
+    longitude?: number;
+    yellow_threshold: number;
+    red_threshold: number;
+}>) || [];
+
+
+// Device deletion state
+const deletingDevice = ref(false);
+const deleteError = ref('');
+const deleteForm = useForm({
+    device_uid: '',
+});
+
+
+const pairingCode = page.props.pairingCode as string | null;
+const deviceReadings = (page.props.deviceReadings as Array<any>) || [];
+
 function startEditThresholds() {
-    yellowThresholdInput.value = selectedDevice.value?.yellow_threshold ?? 50;
-    redThresholdInput.value = selectedDevice.value?.red_threshold ?? 30;
+    if (!selectedDevice.value) return;
+    yellowThresholdInput.value = (selectedDevice.value as any).yellow_threshold ?? 50;
+    redThresholdInput.value = (selectedDevice.value as any).red_threshold ?? 30;
     thresholdError.value = '';
     thresholdSuccess.value = '';
     editingThresholds.value = true;
@@ -44,7 +96,8 @@ async function saveThresholds() {
         updatingThresholds.value = false;
         return;
     }
-    thresholdForm.device_uid = selectedDevice.value.device_uid;
+    if (!selectedDevice.value) return;
+    thresholdForm.device_uid = (selectedDevice.value as any).device_uid;
     thresholdForm.yellow_threshold = yellowThresholdInput.value;
     thresholdForm.red_threshold = redThresholdInput.value;
     thresholdForm.post('/devices/update-thresholds', {
@@ -63,12 +116,6 @@ async function saveThresholds() {
     });
 }
 
-const page = usePage();
-const devices = (page.props.devices as Array<{ name: string; device_uid: string; created_at: string; postcode?: string; latitude?: number; longitude?: number }>) || [];
-
-const pairingCode = page.props.pairingCode as string | null;
-const deviceReadings = (page.props.deviceReadings as Array<any>) || [];
-
 // Get selected device from query string (reactive)
 const selectedDeviceUid = computed(() => {
     const url = usePage().url as string;
@@ -81,16 +128,42 @@ const selectedDevice = computed(() => {
     return devices.find((d: any) => d.device_uid === selectedDeviceUid.value) || null;
 });
 
-const editingPostcode = ref(false);
-const postcodeInput = ref('');
-const postcodeError = ref('');
-const updatingPostcode = ref(false);
-const postcodeForm = useForm({
-    device_uid: '',
-    postcode: '',
-    latitude: '',
-    longitude: '',
-});
+function startRenameDevice() {
+    renameInput.value = selectedDevice.value?.name || '';
+    renameError.value = '';
+    renamingDevice.value = true;
+}
+
+function cancelRenameDevice() {
+    renamingDevice.value = false;
+    renameError.value = '';
+}
+
+function saveRenameDevice() {
+    renameError.value = '';
+    updatingRename.value = true;
+    if (!selectedDevice.value) return;
+    renameForm.device_uid = (selectedDevice.value as any).device_uid;
+    renameForm.name = renameInput.value.trim();
+    if (!renameForm.name) {
+        renameError.value = 'Name cannot be empty.';
+        updatingRename.value = false;
+        return;
+    }
+    renameForm.post('/devices/rename', {
+        preserveScroll: true,
+        onSuccess: () => {
+            renamingDevice.value = false;
+            window.location.reload();
+        },
+        onError: (errors) => {
+            renameError.value = errors.name || 'Failed to rename device.';
+        },
+        onFinish: () => {
+            updatingRename.value = false;
+        },
+    });
+}
 
 function startEditPostcode() {
     postcodeInput.value = selectedDevice.value?.postcode || '';
@@ -109,7 +182,8 @@ async function savePostcode() {
             updatingPostcode.value = false;
             return;
         }
-        postcodeForm.device_uid = selectedDevice.value.device_uid;
+        if (!selectedDevice.value) return;
+        postcodeForm.device_uid = (selectedDevice.value as any).device_uid;
         postcodeForm.postcode = data.result.postcode;
         postcodeForm.latitude = data.result.latitude;
         postcodeForm.longitude = data.result.longitude;
@@ -131,6 +205,58 @@ async function savePostcode() {
     }
 }
 
+function startDeleteDevice() {
+    deleteError.value = '';
+    deletingDevice.value = true;
+}
+
+function cancelDeleteDevice() {
+    deletingDevice.value = false;
+    deleteError.value = '';
+}
+
+function confirmDeleteDevice() {
+    deleteError.value = '';
+    if (!selectedDevice.value) return;
+    deleteForm.device_uid = (selectedDevice.value as any).device_uid;
+    deleteForm.post('/devices/delete', {
+        preserveScroll: true,
+        onSuccess: () => {
+            deletingDevice.value = false;
+            window.location.href = '/dashboard';
+        },
+        onError: (errors) => {
+            deleteError.value = errors.device_uid || 'Failed to delete device.';
+        },
+        onFinish: () => {
+            deletingDevice.value = false;
+        },
+    });
+}
+
+            
+async function fetchNotifications() {
+    try {
+        const res = await fetch('/notifications/list');
+        if (!res.ok) return;
+        const data = await res.json();
+        notifications.value = data.notifications || [];
+        notificationCount.value = notifications.value.length;
+    } catch {}
+}
+
+async function deleteNotification(id: number) {
+    await fetch(`/notifications/delete/${id}`, { method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json' } });
+    notifications.value = notifications.value.filter(n => n.id !== id);
+    notificationCount.value = notifications.value.length;
+}
+
+onMounted(() => {
+    fetchNotifications();
+});
+
+setInterval(fetchNotifications, 60000);
+
 const breadcrumbs: BreadcrumbItem[] = [
     {
         title: 'Dashboard',
@@ -142,12 +268,56 @@ const breadcrumbs: BreadcrumbItem[] = [
 <template>
     <Head title="Dashboard" />
 
+    <!-- Notifications Icon and Dropdown -->
+    <div style="position: fixed; top: 0; right: 0; width: 100vw; z-index: 12000; pointer-events: none;">
+        <div style="position: absolute; top: 18px; right: 36px; pointer-events: auto;">
+            <button @click="showNotifications = !showNotifications" class="relative p-2 rounded-full hover:bg-gray-200 focus:outline-none" style="background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.07);">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-7 h-7 text-gray-700">
+                    <path d="M12 2C8.13 2 5 5.13 5 9v4.28c0 .41-.16.8-.44 1.09l-1.32 1.32A1 1 0 004 17h16a1 1 0 00.76-1.66l-1.32-1.32a1.5 1.5 0 01-.44-1.09V9c0-3.87-3.13-7-7-7zm0 20a2.5 2.5 0 002.45-2h-4.9A2.5 2.5 0 0012 22z"/>
+                </svg>
+                <span v-if="notificationCount > 0" class="absolute -top-1 -right-1 bg-red-600 text-white rounded-full text-xs px-1.5 py-0.5 min-w-[20px] text-center border border-white">{{ notificationCount }}</span>
+            </button>
+            <div v-if="showNotifications" class="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50" style="top: 44px;">
+                <div class="flex items-center justify-between px-4 py-2 border-b">
+                    <span class="font-semibold">Notifications</span>
+                    <button class="text-xs text-gray-500 hover:text-red-600" @click="showNotifications = false">Close</button>
+                </div>
+                <ul class="max-h-80 overflow-y-auto">
+                    <li v-for="n in notifications" :key="n.id" class="flex items-start justify-between px-4 py-3 border-b last:border-b-0 hover:bg-gray-50">
+                        <div>
+                            <div class="font-semibold">{{ n.title }}</div>
+                            <div class="text-xs text-gray-600 whitespace-pre-line" v-if="n.body">{{ n.body }}</div>
+                            <div class="text-xs text-gray-400 mt-1">{{ n.created_at }}</div>
+                        </div>
+                        <button class="ml-2 text-red-500 hover:text-red-700 text-xs" @click="deleteNotification(n.id)">Delete</button>
+                    </li>
+                    <li v-if="notifications.length === 0" class="px-4 py-6 text-center text-gray-400">No notifications.</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
     <AppLayout :breadcrumbs="breadcrumbs" :devices="devices">
         <div class="flex h-full flex-1 flex-col gap-4 overflow-x-auto rounded-xl p-4">
             <div v-if="selectedDevice" style="display: flex; flex-direction: row;">
                 <div class="flex-1 rounded-lg border-2 border-dashed border-gray-300 p-4">
                     <h2 class="text-lg font-semibold">Device Information</h2>
-                    <p><strong>Name:</strong> {{ selectedDevice.name }}</p>
+                    <div class="flex items-center mb-2">
+                        <p class="mr-2"><strong>Name:</strong> {{ selectedDevice.name }}</p>
+                        <button class="px-2 py-1 text-xs border rounded bg-blue-500 text-white ml-2" @click="startRenameDevice">Rename</button>
+                    </div>
+                            <!-- Rename Device Modal -->
+                            <div v-if="renamingDevice" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+                                <div id="rename-popup" style="background: white; padding: 24px; border-radius: 8px; min-width: 340px; z-index: 10000; box-shadow: 0 2px 16px rgba(0,0,0,0.15);">
+                                    <h2 class="text-lg font-semibold mb-2">Rename Device</h2>
+                                    <input v-model="renameInput" class="border rounded px-2 py-1 text-sm w-full mb-3" placeholder="Enter new device name" :disabled="updatingRename || renameForm.processing" />
+                                    <div class="flex gap-2 justify-end">
+                                        <button class="px-4 py-1.5 text-sm border rounded" @click="cancelRenameDevice">Cancel</button>
+                                        <button class="px-4 py-1.5 text-sm border rounded bg-blue-500 text-white hover:bg-blue-600 transition" :disabled="updatingRename || renameForm.processing" @click="saveRenameDevice">Save</button>
+                                    </div>
+                                    <span v-if="renameError" class="mt-2 text-red-500 text-xs block">{{ renameError }}</span>
+                                </div>
+                            </div>
                     <p><strong>Device UID:</strong> {{ selectedDevice.device_uid }}</p>
                     <p><strong>Created At:</strong> {{ selectedDevice.created_at }}</p>
                     <div class="mt-2">
@@ -218,6 +388,12 @@ const breadcrumbs: BreadcrumbItem[] = [
                 </div>
             </div>
             <SensorReadingsChart v-if="selectedDevice" :readings="deviceReadings" :yellow-threshold="selectedDevice.yellow_threshold" :red-threshold="selectedDevice.red_threshold" />
+            <!-- Delete Device Button (bottom right) -->
+            <div v-if="selectedDevice" class="flex justify-end mt-8">
+                <button class="px-4 py-2 text-sm border rounded bg-red-600 text-white hover:bg-red-700 transition" @click="startDeleteDevice">
+                    Delete Device
+                </button>
+            </div>
             <div v-else class="flex flex-col items-center justify-center h-96">
                 <div class="rounded-lg border-2 border-dashed border-gray-300 p-8 text-center">
                     <h2 class="text-xl font-semibold mb-2">No Device Selected</h2>
@@ -225,6 +401,19 @@ const breadcrumbs: BreadcrumbItem[] = [
                 </div>
             </div>
         </div>
+        <!-- Delete Device Confirmation Modal -->
+        <div v-if="deletingDevice" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+            <div id="delete-popup" style="background: white; padding: 24px; border-radius: 8px; min-width: 340px; z-index: 10000; box-shadow: 0 2px 16px rgba(0,0,0,0.15);">
+                <h2 class="text-lg font-semibold mb-2 text-red-700">Delete Device</h2>
+                <p class="mb-4">Are you sure you want to delete this device?<br><span class="font-semibold">This action cannot be undone.</span></p>
+                <div class="flex gap-2 justify-end">
+                    <button class="px-4 py-1.5 text-sm border rounded" @click="cancelDeleteDevice">Cancel</button>
+                    <button class="px-4 py-1.5 text-sm border rounded bg-red-600 text-white hover:bg-red-700 transition" :disabled="deleteForm.processing" @click="confirmDeleteDevice">Delete</button>
+                </div>
+                <span v-if="deleteError" class="mt-2 text-red-500 text-xs block">{{ deleteError }}</span>
+            </div>
+        </div>
+
         <div 
             v-if="pairingCode !== null"
             style="
