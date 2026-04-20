@@ -8,13 +8,14 @@ use App\Models\PairingCode;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Auth;
 use App\Jobs\UpdateWeatherForDevices;
+use PhpMqtt\Client\Facades\MQTT;
 
 
 class DeviceController extends Controller
 {
-    /**
-     * Register a device using pairing code
-     */
+    // ----------------------------
+    // Register a device using pairing code
+    // ----------------------------
     public function register(Request $request)
     {
         $request->validate([
@@ -25,23 +26,19 @@ class DeviceController extends Controller
         $uid  = strtoupper($request->input('uid'));
         $code = strtoupper($request->input('code'));
 
-        // ----------------------------
         // Check pairing code
-        // ----------------------------
         $pair = PairingCode::where('code', $code)
-            ->where('expires_at', '>', now())
+            ->where('expires_at', '>', now()) // make sure pairing code is not expired
             ->first();
 
-        if (!$pair) {
+        if (!$pair) { // no valid pairing code found
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid or expired pairing code'
             ], 400);
         }
 
-        // ----------------------------
         // Check if device already exists
-        // ----------------------------
         $device = Device::where('device_uid', $uid)->first();
 
         if (!$device) {
@@ -62,31 +59,11 @@ class DeviceController extends Controller
             }
         }
 
-
         // Delete used pairing code
+        // Standards expect that the function is moved to a trait but doing this is easier and sufficiently clear
         app('App\Http\Controllers\PairingCodeController')->deletePairingCodes(request());
 
-        // Update weather for this device
-        dispatch(function () use ($device) {
-            // Inline single-device weather update logic
-            $job = new class($device) extends \App\Jobs\UpdateWeatherForDevices {
-                private $device;
-                public function __construct($device) { $this->device = $device; }
-                public function handle(): void {
-                    $rainToday = $this->checkRain($this->device->latitude, $this->device->longitude);
-                    \PhpMqtt\Client\Facades\MQTT::publish("device/{$this->device->device_uid}/config", json_encode([
-                        'rain_today' => $rainToday,
-                        'yellow_threshold' => $this->device->yellow_threshold,
-                        'red_threshold' => $this->device->red_threshold,
-                    ]));
-                }
-            };
-            $job->handle();
-        });
-
-        // ----------------------------
         // Return MQTT config
-        // ----------------------------
         return response()->json([
             'success' => true,
             'mqtt' => [
@@ -99,6 +76,10 @@ class DeviceController extends Controller
         ]);
     }
 
+
+    // ----------------------------
+    // Update device postcode, coordinates, and then weather info for the device
+    // ----------------------------
     public function updatePostcode(Request $request)
     {
         $request->validate([
@@ -109,7 +90,7 @@ class DeviceController extends Controller
         ]);
 
         $device = Device::where('device_uid', $request->device_uid)
-            ->where('user_id', Auth::id())
+            ->where('user_id', Auth::id()) // prevents users from updating devices that aren't theirs
             ->firstOrFail();
 
         $device->postcode = $request->postcode;
@@ -122,9 +103,9 @@ class DeviceController extends Controller
         return redirect()->back()->with('success', 'Postcode updated!');
     }
 
-    /**
-     * Update device yellow/red thresholds
-     */
+    // ----------------------------
+    // Update device yellow/red thresholds
+    // ----------------------------
     public function updateThresholds(Request $request)
     {
         $request->validate([
@@ -150,30 +131,29 @@ class DeviceController extends Controller
         return back()->with('success', 'Thresholds updated!');
     }
     
-    /**
-     * Update weather for a single device (helper)
-     */
+    // ----------------------------
+    // Update weather for a single device 
+    // ----------------------------
     private function updateWeatherForDevice($device)
     {
-        // Inline single-device weather update logic
-        $job = new class($device) extends \App\Jobs\UpdateWeatherForDevices {
-            private $device;
-            public function __construct($device) { $this->device = $device; }
-            public function handle(): void {
+        // Create and run a single job to update weather for this device instead of waiting for the scheduled job to run
+        $job = new class($device) extends UpdateWeatherForDevices { // create a new class that extends UpdateWeatherForDevices so we can reuse the checkRain function
+            public function __construct($device) { $this->device = $device; } 
+            public function handle(): void { // override the handle function to only update weather for the single device passed in the constructor
                 $rainToday = $this->checkRain($this->device->latitude, $this->device->longitude);
-                \PhpMqtt\Client\Facades\MQTT::publish("device/{$this->device->device_uid}/config", json_encode([
+                MQTT::publish("device/{$this->device->device_uid}/config", json_encode([
                     'rain_today' => $rainToday,
                     'yellow_threshold' => $this->device->yellow_threshold,
                     'red_threshold' => $this->device->red_threshold,
                 ]));
             }
         };
-        $job->handle();
+        $job->handle(); 
     }
     
-    /**
-     * Rename device by device_uid 
-     */
+    // ----------------------------
+    // Rename device by device_uid 
+    // ----------------------------
     public function renameDevice(Request $request)
     {
         $request->validate([
@@ -181,67 +161,25 @@ class DeviceController extends Controller
             'name' => 'required|string|max:255',
         ]);
         $device = Device::where('device_uid', $request->device_uid)
-            ->where('user_id', Auth::id())
-            ->firstOrFail();
+            ->where('user_id', Auth::id()) // prevents users from renaming devices that aren't theirs
+            ->firstOrFail(); 
         $device->name = $request->name;
         $device->save();
         return redirect()->back()->with('success', 'Device renamed!');
     }
-    /**
-     * Delete device by device_uid
-     */
+
+    // ----------------------------
+    // Delete device by device_uid
+    // ----------------------------
     public function deleteDevice(Request $request)
     {
         $request->validate([
             'device_uid' => 'required|exists:devices,device_uid',
         ]);
         $device = Device::where('device_uid', $request->device_uid)
-            ->where('user_id', Auth::id())
+            ->where('user_id', Auth::id()) // prevents users from deleting devices that aren't theirs
             ->firstOrFail();
         $device->delete();
-        return redirect('/dashboard');
-    }
-
-    /**
-     * Get device info 
-     */
-    public function show(Device $device)
-    {
-        return response()->json([
-            'id' => $device->id,
-            'name' => $device->name,
-            'uid' => $device->device_uid,
-            'created_at' => $device->created_at,
-        ]);
-    }
-
-    /**
-     * Rename device
-     */
-    public function update(Request $request, Device $device)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255'
-        ]);
-
-        $device->name = $request->name;
-        $device->save();
-
-        return response()->json([
-            'success' => true,
-            'name' => $device->name
-        ]);
-    }
-
-    /**
-     * Delete device
-     */
-    public function destroy(Device $device)
-    {
-        $device->delete();
-
-        return response()->json([
-            'success' => true
-        ]);
+        return redirect('/dashboard'); // reload dashboard to update device list and exit the deleted device's page 
     }
 }

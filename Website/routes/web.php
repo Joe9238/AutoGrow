@@ -65,7 +65,8 @@ Route::get('/pairing-code', function (PairingCodeController $controller, Request
 })->middleware('auth');
 
 
-
+// Endpoints that do not return views, used for requests from the frontend 
+// Not kept under api.php since they are internal
 Route::post('/devices/update-postcode', [DeviceController::class, 'updatePostcode'])->middleware('auth');
 Route::post('/devices/update-thresholds', [DeviceController::class, 'updateThresholds'])->middleware('auth');
 Route::post('/devices/delete', [DeviceController::class, 'deleteDevice'])->middleware('auth');

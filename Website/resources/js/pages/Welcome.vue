@@ -48,7 +48,7 @@ import { ref } from 'vue';
                 class="flex w-full flex-col-reverse justify-center overflow-hidden rounded-lg lg:flex-row"
             >
                 <div style="display: flex; flex-direction: row;">
-                    
+                    <!-- Nothing meaningful to display -->
                 </div>
             </main>
         </div>

@@ -35,17 +35,30 @@ class MqttListen extends Command
 
         $this->info("Connected to MQTT");
 
-
+         
+        // ----------------------------
+        // Subscribe to device data topic and handle incoming messages
+        // ----------------------------
         $mqtt->subscribe('device/+/data', function ($topic, $message) {
             echo "Received [$topic]: $message\n";
-            preg_match('/device\/(.+)\/data/', $topic, $matches);
+            // check topic format and extract device UID
+            preg_match('/device\/(.+)\/data/', $topic, $matches); 
             $uid = $matches[1] ?? null;
-            if (!$uid) return;
-            $data = json_decode($message, true);
-            if (!$data) return;
-            $device = Device::where('device_uid', $uid)->first();
-            if (!$device) return;
+            if (!$uid) {
+                return;
+            }
 
+            $data = json_decode($message, true);
+            if (!$data) {
+                return;
+            }
+
+            $device = Device::where('device_uid', $uid)->first();
+            if (!$device) {
+                return;
+            }
+
+            // create new reading to save to database
             $reading = $device->readings()->create([
                 'moisture' => $data['moisture'] ?? null,
                 'temperature' => $data['temperature'] ?? null,
@@ -53,15 +66,18 @@ class MqttListen extends Command
             ]);
             echo "Saved reading for device $uid\n";
 
-            // notifications
+            // ----------------------------
+            // check if notifications should be generated 
+            // ----------------------------
             $user = $device->user;
             if ($user) {
                 // Frost warning
                 if (isset($data['temperature']) && $data['temperature'] < 0) {
+                    // check if a similar notification has been sent regarding this device
                     $existing = \App\Models\Notification::where('user_id', $user->id)
                         ->where('title', 'Frost Warning')
                         ->where('body', 'LIKE', "%{$device->name}%")
-                        ->where('created_at', '>=', now()->subHours(6))
+                        ->where('created_at', '>=', now()->subHours(6)) // ensure we don't spam with multiple notifications in a short time
                         ->first();
                     if (!$existing) {
                         \App\Models\Notification::create([
@@ -77,11 +93,12 @@ class MqttListen extends Command
                     // Check last 100 readings for this device
                     $recent = $device->readings()->orderBy('recorded_at', 'desc')->limit(100)->get();
                     $lowCount = $recent->where('moisture', '<=', $device->red_threshold)->count();
-                    if ($lowCount == 100) { // All 100 readings below threshold
+                    if ($lowCount == 100) { // All 100 readings below threshold, water likely isnt getting through to the plant
+                        // check if a similar notification has been sent regarding this device
                         $existing = \App\Models\Notification::where('user_id', $user->id)
                             ->where('title', 'Low Moisture Alert')
                             ->where('body', 'LIKE', "%{$device->name}%")
-                            ->where('created_at', '>=', now()->subHours(2))
+                            ->where('created_at', '>=', now()->subHours(2)) // ensure we don't spam with multiple notifications in a short time
                             ->first();
                         if (!$existing) {
                             \App\Models\Notification::create([

@@ -4,7 +4,7 @@ import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types';
 import { Head, usePage, useForm } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
-import SensorReadingsChart from '@/Components/SensorReadingsChart.vue';
+import SensorReadingsChart from '@/components/SensorReadingsChart.vue';
 import { Link } from '@inertiajs/vue3';
 import { onMounted } from 'vue';
 
@@ -46,7 +46,14 @@ const thresholdForm = useForm({
     red_threshold: 0,
 });
 
+// Device deletion state
+const deletingDevice = ref(false);
+const deleteError = ref('');
+const deleteForm = useForm({
+    device_uid: '',
+});
 
+// Props
 const page = usePage();
 const devices = (page.props.devices as Array<{
     name: string;
@@ -58,16 +65,6 @@ const devices = (page.props.devices as Array<{
     yellow_threshold: number;
     red_threshold: number;
 }>) || [];
-
-
-// Device deletion state
-const deletingDevice = ref(false);
-const deleteError = ref('');
-const deleteForm = useForm({
-    device_uid: '',
-});
-
-
 const pairingCode = page.props.pairingCode as string | null;
 const deviceReadings = (page.props.deviceReadings as Array<any>) || [];
 
@@ -96,16 +93,18 @@ async function saveThresholds() {
         updatingThresholds.value = false;
         return;
     }
-    if (!selectedDevice.value) return;
+    if (!selectedDevice.value){ 
+        return;
+    }
     thresholdForm.device_uid = (selectedDevice.value as any).device_uid;
     thresholdForm.yellow_threshold = yellowThresholdInput.value;
     thresholdForm.red_threshold = redThresholdInput.value;
-    thresholdForm.post('/devices/update-thresholds', {
+    thresholdForm.post('/devices/update-thresholds', { // send data to update route which will update the device
         preserveScroll: true,
         onSuccess: () => {
             thresholdSuccess.value = 'Thresholds updated!';
             editingThresholds.value = false;
-            window.location.reload();
+            window.location.reload(); // reload to get updated thresholds and re-render graph with new thresholds
         },
         onError: (errors) => {
             thresholdError.value = errors.yellow_threshold || errors.red_threshold || 'Failed to update thresholds.';
@@ -116,7 +115,7 @@ async function saveThresholds() {
     });
 }
 
-// Get selected device from query string (reactive)
+// Get selected device from query string in url
 const selectedDeviceUid = computed(() => {
     const url = usePage().url as string;
     const params = new URLSearchParams(url.split('?')[1] || '');
@@ -234,7 +233,6 @@ function confirmDeleteDevice() {
     });
 }
 
-            
 async function fetchNotifications() {
     try {
         const res = await fetch('/notifications/list');
@@ -272,6 +270,7 @@ const breadcrumbs: BreadcrumbItem[] = [
     <div style="position: fixed; top: 0; right: 0; width: 100vw; z-index: 12000; pointer-events: none;">
         <div style="position: absolute; top: 18px; right: 36px; pointer-events: auto;">
             <button @click="showNotifications = !showNotifications" class="relative p-2 rounded-full hover:bg-gray-200 focus:outline-none" style="background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.07);">
+                <!-- AI generated SVG icon for notifications -->
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-7 h-7 text-gray-700">
                     <path d="M12 2C8.13 2 5 5.13 5 9v4.28c0 .41-.16.8-.44 1.09l-1.32 1.32A1 1 0 004 17h16a1 1 0 00.76-1.66l-1.32-1.32a1.5 1.5 0 01-.44-1.09V9c0-3.87-3.13-7-7-7zm0 20a2.5 2.5 0 002.45-2h-4.9A2.5 2.5 0 0012 22z"/>
                 </svg>
@@ -306,20 +305,22 @@ const breadcrumbs: BreadcrumbItem[] = [
                         <p class="mr-2"><strong>Name:</strong> {{ selectedDevice.name }}</p>
                         <button class="px-2 py-1 text-xs border rounded bg-blue-500 text-white ml-2" @click="startRenameDevice">Rename</button>
                     </div>
-                            <!-- Rename Device Modal -->
-                            <div v-if="renamingDevice" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
-                                <div id="rename-popup" style="background: white; padding: 24px; border-radius: 8px; min-width: 340px; z-index: 10000; box-shadow: 0 2px 16px rgba(0,0,0,0.15);">
-                                    <h2 class="text-lg font-semibold mb-2">Rename Device</h2>
-                                    <input v-model="renameInput" class="border rounded px-2 py-1 text-sm w-full mb-3" placeholder="Enter new device name" :disabled="updatingRename || renameForm.processing" />
-                                    <div class="flex gap-2 justify-end">
-                                        <button class="px-4 py-1.5 text-sm border rounded" @click="cancelRenameDevice">Cancel</button>
-                                        <button class="px-4 py-1.5 text-sm border rounded bg-blue-500 text-white hover:bg-blue-600 transition" :disabled="updatingRename || renameForm.processing" @click="saveRenameDevice">Save</button>
-                                    </div>
-                                    <span v-if="renameError" class="mt-2 text-red-500 text-xs block">{{ renameError }}</span>
-                                </div>
+                    <!-- Rename Device Modal -->
+                    <div v-if="renamingDevice" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+                        <div id="rename-popup" style="background: white; padding: 24px; border-radius: 8px; min-width: 340px; z-index: 10000; box-shadow: 0 2px 16px rgba(0,0,0,0.15);">
+                            <h2 class="text-lg font-semibold mb-2">Rename Device</h2>
+                            <input v-model="renameInput" class="border rounded px-2 py-1 text-sm w-full mb-3" placeholder="Enter new device name" :disabled="updatingRename || renameForm.processing" />
+                            <div class="flex gap-2 justify-end">
+                                <button class="px-4 py-1.5 text-sm border rounded" @click="cancelRenameDevice">Cancel</button>
+                                <button class="px-4 py-1.5 text-sm border rounded bg-blue-500 text-white hover:bg-blue-600 transition" :disabled="updatingRename || renameForm.processing" @click="saveRenameDevice">Save</button>
                             </div>
+                            <span v-if="renameError" class="mt-2 text-red-500 text-xs block">{{ renameError }}</span>
+                        </div>
+                    </div>
+                    <!-- Other device information -->
                     <p><strong>Device UID:</strong> {{ selectedDevice.device_uid }}</p>
                     <p><strong>Created At:</strong> {{ selectedDevice.created_at }}</p>
+                    <!-- Postcode and coordinates -->
                     <div class="mt-2">
                         <label class="font-semibold">Postcode: </label>
                         <span v-if="!editingPostcode">
@@ -387,7 +388,10 @@ const breadcrumbs: BreadcrumbItem[] = [
                     </div>
                 </div>
             </div>
+
+            <!-- Graph component -->
             <SensorReadingsChart v-if="selectedDevice" :readings="deviceReadings" :yellow-threshold="selectedDevice.yellow_threshold" :red-threshold="selectedDevice.red_threshold" />
+
             <!-- Delete Device Button (bottom right) -->
             <div v-if="selectedDevice" class="flex justify-end mt-8">
                 <button class="px-4 py-2 text-sm border rounded bg-red-600 text-white hover:bg-red-700 transition" @click="startDeleteDevice">
@@ -413,9 +417,9 @@ const breadcrumbs: BreadcrumbItem[] = [
                 <span v-if="deleteError" class="mt-2 text-red-500 text-xs block">{{ deleteError }}</span>
             </div>
         </div>
-
+        <!-- Pairing Code Modal, appears under /pairing-code route -->
         <div 
-            v-if="pairingCode !== null"
+            v-if="pairingCode !== null" 
             style="
                 position: fixed;
                 inset: 0;

@@ -20,7 +20,11 @@ interface SensorReading {
   recorded_at: string;
 }
 
-const props = defineProps<{ readings: SensorReading[], yellowThreshold?: number, redThreshold?: number }>();
+const props = defineProps<{ 
+  readings: SensorReading[], 
+  yellowThreshold?: number, 
+  redThreshold?: number 
+}>();
 
 
 function formatDate(dateStr: string) {
