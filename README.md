@@ -74,7 +74,7 @@ Hosts containers for the website, MySQL database, and phpMyAdmin for database ma
 ## Setting up the system
 
 ### Running the website:
-A startup script "up.sh" can be run within a linux terminal to build and start up the containers.
+A startup script "up.sh" can be run within a Linux terminal to build and start up the containers.
 
 **A .env file is necessary to run the website and allow the system to function. This has not been included as it contains sensitive data relating to existing HiveMQ credentials.**
 
@@ -85,7 +85,7 @@ Once done:
 1) On any device to connect to the new network using the credentials provided on the OLED screen
 2) A page will pop up on the device either immediately or after accessing the browser 
 3) Within the page, enter the name and password of your home network, and the pairing code provided by the website
-4) After submission the hub will connect to the home network and receive the necessary configuration for long-term communication.
+4) After submission the hub will connect to the home network and receive the necessary configuration for long-term communication
 5) On the website, the user can enter the device's location using their postcode and set the desired moisture % thresholds
 6) The hub's sensor should be buried into the soil and the valve controller connected to the home irrigation's water supply
 
