@@ -133,7 +133,7 @@ void startHotspot() {
   WiFi.disconnect(true, true); // clear creds
   delay(200);
 
-  String hotspotPassword = generatePassword(5);
+  String hotspotPassword = generatePassword(10);
   WiFi.mode(WIFI_AP_STA);
   WiFi.softAP("AutoGrow-Setup", hotspotPassword);
 
@@ -286,7 +286,7 @@ void registerDevice() {
 
   HTTPClient http;
 
-  String url = "http://192.168.68.52/api/device/register";
+  String url = "http://192.168.5.27/api/device/register";
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
